@@ -1262,21 +1262,48 @@ bool CTTSEngine::TryCacheHit(const SPVTEXTFRAG* pTextFragList, ISpTTSEngineSite*
     if (text.empty())
         return false;
 
-    // V1 LIMITATION: Hardcoded metadata
-    // ScummVM's SAPI5 TTS interface only passes dialogue text, not actor/room metadata.
-    // For v1, we use defaults. Cache hits will only work for dialogues where:
-    // - actor_id=1, room_id=1 in the database (happens to match)
-    // - OR server looks up by text instead of hash (future enhancement)
-    //
-    // Phase 4 will investigate extending ScummVM TTS interface to pass metadata,
-    // or implementing text-based fallback lookup on server.
+    // Parse cache metadata from XML comment: <!-- cache:hash:actor:room -->
     std::wstring gameId = L"indy3";  // TODO: Detect from ScummVM engine context
-    int actorId = 1;   // Default - see v1 limitation above
-    int roomId = 1;    // Default - see v1 limitation above
+    int actorId = 1;   // Default fallback
+    int roomId = 1;    // Default fallback
+    std::wstring hash = L"";
 
-    // Server computes hash from (text, actor_id, room_id) - no local hash needed
-    // We pass empty hash, server will compute using database.compute_dialogue_hash()
-    CacheResult result = m_cacheClient->LookupAudio(gameId, text, L"", actorId, roomId);
+    // Look for XML comment: <!-- cache:hash:actor:room -->
+    size_t commentStart = text.find(L"<!-- cache:");
+    if (commentStart != std::wstring::npos)
+    {
+        size_t commentEnd = text.find(L"-->", commentStart);
+        if (commentEnd != std::wstring::npos)
+        {
+            // Extract comment content: "cache:hash:actor:room"
+            std::wstring comment = text.substr(commentStart + 11, commentEnd - commentStart - 11);
+
+            // Parse fields: hash:actor:room
+            size_t pos1 = comment.find(L':');
+            size_t pos2 = comment.find(L':', pos1 + 1);
+
+            if (pos1 != std::wstring::npos && pos2 != std::wstring::npos)
+            {
+                hash = comment.substr(0, pos1);
+                actorId = _wtoi(comment.substr(pos1 + 1, pos2 - pos1 - 1).c_str());
+                roomId = _wtoi(comment.substr(pos2 + 1).c_str());
+
+                LogDebug("Parsed cache metadata from comment: hash={}, actor={}, room={}",
+                    WStringToUTF8(hash), actorId, roomId);
+            }
+
+            // Remove comment from text for clean audio lookup
+            text.erase(commentStart, commentEnd - commentStart + 3);
+
+            // Trim leading whitespace after removing comment
+            size_t firstNonSpace = text.find_first_not_of(L" \t\r\n");
+            if (firstNonSpace != std::wstring::npos)
+                text = text.substr(firstNonSpace);
+        }
+    }
+
+    // If we have a hash from the comment, use it. Otherwise server computes from (text, actor, room)
+    CacheResult result = m_cacheClient->LookupAudio(gameId, text, hash, actorId, roomId);
 
     if (result.hit && !result.audioData.empty())
     {
