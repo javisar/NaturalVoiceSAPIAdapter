@@ -199,6 +199,8 @@ nlohmann::json GetCachedJson(LPCWSTR cacheName, LPCSTR downloadUrl, LPCSTR downl
 
             // Cache voice list for an hour
             // If the cache is outdated, update it in a background thread
+            //////
+            uiWrite.QuadPart = uiNow.QuadPart;
             if (uiNow.QuadPart < uiWrite.QuadPart ||
                 uiNow.QuadPart - uiWrite.QuadPart > 10000000ULL * 60 * 60)
             {

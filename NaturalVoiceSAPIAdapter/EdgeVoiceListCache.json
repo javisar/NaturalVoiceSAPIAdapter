@@ -1,5 +1,26 @@
 [
   {
+    "Name": "Microsoft Qwen - English (United States)",
+    "ShortName": "en-US-Qwen",
+    "Gender": "Male",
+    "Locale": "en-US",
+    "SuggestedCodec": "audio-24khz-48kbitrate-mono-mp3",
+    "FriendlyName": "Microsoft Qwen - English (United States)",
+    "Status": "GA",
+    "VoiceTag": {
+      "ContentCategories": [
+        "Conversation",
+        "Copilot"
+      ],
+      "VoicePersonalities": [
+        "Expressive",
+        "Caring",
+        "Pleasant",
+        "Friendly"
+      ]
+    }
+  },
+  {
     "Name": "Microsoft Server Speech Text to Speech Voice (af-ZA, AdriNeural)",
     "ShortName": "af-ZA-AdriNeural",
     "Gender": "Female",

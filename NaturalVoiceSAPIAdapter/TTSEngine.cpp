@@ -36,6 +36,11 @@ STDMETHODIMP CTTSEngine::SetObjectToken(ISpObjectToken* pToken) noexcept
 
         InitPhoneConverter();
 
+        // Initialize cache client for pre-generated dialogue audio
+        m_cacheClient = std::make_unique<CacheClient>();
+        m_cacheClient->SetServerUrl(L"http://localhost:8880/serving/audio");
+        m_cacheEnabled = true;  // Could be registry-configurable in future
+
         return S_OK;
     }
     catch (const std::bad_alloc&)
@@ -102,6 +107,13 @@ STDMETHODIMP CTTSEngine::Speak(DWORD /*dwSpeakFlags*/,
             m_lastCancellingFuture = {};
         }
 
+        // Try cache first if enabled
+        if (m_cacheEnabled && m_cacheClient && TryCacheHit(pTextFragList, pOutputSite))
+        {
+            return S_OK;  // Cache hit - audio played, we're done
+        }
+        // Cache miss - continue with normal TTS synthesis
+
         ULONGLONG eventInterests = 0;
         pOutputSite->GetEventInterest(&eventInterests);
         if (m_synthesizer)
@@ -124,8 +136,8 @@ STDMETHODIMP CTTSEngine::Speak(DWORD /*dwSpeakFlags*/,
             FinishSimulatingBookmarkEvents(m_compensatedSilentBytes);
             return S_OK;
         }
-
-        LogDebug("Speak: Built SSML: {}", m_ssml);
+        LogWarn("Speak: Built SSML: {}", pTextFragList->pTextStart);
+        LogWarn("Speak: Built SSML: {}", m_ssml);
 
         m_compensatedSilenceWritten = false;
         m_compensatedSilentBytes = 0;
@@ -1232,4 +1244,67 @@ void CTTSEngine::CheckSynthesisResult(const std::shared_ptr<SpeechSynthesisResul
         return;
 
     throw std::runtime_error(UTF8ToAnsi(details->ErrorDetails));
+}
+
+// Try to get audio from cache, returns true if found and played
+bool CTTSEngine::TryCacheHit(const SPVTEXTFRAG* pTextFragList, ISpTTSEngineSite* pOutputSite)
+{
+    // Extract text from fragments
+    std::wstring text;
+    for (auto pFrag = pTextFragList; pFrag; pFrag = pFrag->pNext)
+    {
+        if (pFrag->State.eAction == SPVA_Speak && pFrag->ulTextLen > 0)
+        {
+            text.append(pFrag->pTextStart, pFrag->ulTextLen);
+        }
+    }
+
+    if (text.empty())
+        return false;
+
+    // V1 LIMITATION: Hardcoded metadata
+    // ScummVM's SAPI5 TTS interface only passes dialogue text, not actor/room metadata.
+    // For v1, we use defaults. Cache hits will only work for dialogues where:
+    // - actor_id=1, room_id=1 in the database (happens to match)
+    // - OR server looks up by text instead of hash (future enhancement)
+    //
+    // Phase 4 will investigate extending ScummVM TTS interface to pass metadata,
+    // or implementing text-based fallback lookup on server.
+    std::wstring gameId = L"indy3";  // TODO: Detect from ScummVM engine context
+    int actorId = 1;   // Default - see v1 limitation above
+    int roomId = 1;    // Default - see v1 limitation above
+
+    // Server computes hash from (text, actor_id, room_id) - no local hash needed
+    // We pass empty hash, server will compute using database.compute_dialogue_hash()
+    CacheResult result = m_cacheClient->LookupAudio(gameId, text, L"", actorId, roomId);
+
+    if (result.hit && !result.audioData.empty())
+    {
+        LogInfo("Cache HIT for text: {}", WStringToUTF8(text.substr(0, 30)));
+        PlayAudioToSite(result.audioData, pOutputSite);
+        return true;
+    }
+
+    if (!result.hit)
+    {
+        LogDebug("Cache MISS for text: {}", WStringToUTF8(text.substr(0, 30)));
+    }
+
+    return false;  // Fall back to TTS
+}
+
+// Play cached audio data to output site
+void CTTSEngine::PlayAudioToSite(const std::vector<BYTE>& audioData, ISpTTSEngineSite* pOutputSite)
+{
+    // Skip WAV header (44 bytes for standard WAV)
+    // Write PCM data to output site
+    if (audioData.size() > 44)
+    {
+        ULONG written = 0;
+        pOutputSite->Write(
+            const_cast<BYTE*>(audioData.data() + 44),
+            static_cast<ULONG>(audioData.size() - 44),
+            &written
+        );
+    }
 }

@@ -9,6 +9,7 @@
 #include "Logger.h"
 #include "SapiException.h"
 #include "Mp3Decoder.h"
+#include "CacheClient.h"
 
 #include "NaturalVoiceSAPIAdapter_i.h"
 
@@ -151,6 +152,10 @@ private: // Member variables
 	std::vector<BookmarkInfo> m_bookmarks;
 	size_t m_bookmarkIndex = 0;
 
+	// Cache client for pre-generated dialogue audio
+	std::unique_ptr<CacheClient> m_cacheClient;
+	bool m_cacheEnabled = true;
+
 private:
 	int OnAudioData(uint8_t* data, uint32_t len);
 	void OnBookmark(uint64_t offsetTicks, const std::wstring& bookmark);
@@ -177,6 +182,10 @@ private: // Private methods
 
 	void MapTextOffset(ULONG& ulSSMLOffset, ULONG& ulTextLen);
 	void CheckSynthesisResult(const std::shared_ptr<SpeechSynthesisResult>& result);
+
+	// Cache-first TTS methods
+	bool TryCacheHit(const SPVTEXTFRAG* pTextFragList, ISpTTSEngineSite* pOutputSite);
+	void PlayAudioToSite(const std::vector<BYTE>& audioData, ISpTTSEngineSite* pOutputSite);
 
 	template <class Exception, class... Args>
 	HRESULT OnException(
