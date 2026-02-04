@@ -1262,43 +1262,44 @@ bool CTTSEngine::TryCacheHit(const SPVTEXTFRAG* pTextFragList, ISpTTSEngineSite*
     if (text.empty())
         return false;
 
-    // Parse cache metadata from XML comment: <!-- cache:hash:actor:room -->
-    std::wstring gameId = L"indy3";  // TODO: Detect from ScummVM engine context
+    // Parse cache metadata from embedded marker: [###hash:game_id:actor:room###]
+    std::wstring gameId = L"indy3";  // Default fallback
     int actorId = 1;   // Default fallback
     int roomId = 1;    // Default fallback
     std::wstring hash = L"";
 
-    // Look for XML comment: <!-- cache:hash:actor:room -->
-    size_t commentStart = text.find(L"<!-- cache:");
-    if (commentStart != std::wstring::npos)
+    // Look for metadata marker: [###hash:game_id:actor:room###]
+    size_t markerStart = text.find(L"[###");
+    if (markerStart != std::wstring::npos)
     {
-        size_t commentEnd = text.find(L"-->", commentStart);
-        if (commentEnd != std::wstring::npos)
+        size_t markerEnd = text.find(L"###]", markerStart);
+        if (markerEnd != std::wstring::npos)
         {
-            // Extract comment content: "cache:hash:actor:room"
-            std::wstring comment = text.substr(commentStart + 11, commentEnd - commentStart - 11);
+            // Extract marker content: "hash:game_id:actor:room"
+            std::wstring metadata = text.substr(markerStart + 4, markerEnd - markerStart - 4);
 
-            // Parse fields: hash:actor:room
-            size_t pos1 = comment.find(L':');
-            size_t pos2 = comment.find(L':', pos1 + 1);
+            // Parse fields: hash:game_id:actor:room
+            size_t pos1 = metadata.find(L':');
+            size_t pos2 = metadata.find(L':', pos1 + 1);
+            size_t pos3 = metadata.find(L':', pos2 + 1);
 
-            if (pos1 != std::wstring::npos && pos2 != std::wstring::npos)
+            if (pos1 != std::wstring::npos && pos2 != std::wstring::npos && pos3 != std::wstring::npos)
             {
-                hash = comment.substr(0, pos1);
-                actorId = _wtoi(comment.substr(pos1 + 1, pos2 - pos1 - 1).c_str());
-                roomId = _wtoi(comment.substr(pos2 + 1).c_str());
+                hash = metadata.substr(0, pos1);
+                gameId = metadata.substr(pos1 + 1, pos2 - pos1 - 1);
+                actorId = _wtoi(metadata.substr(pos2 + 1, pos3 - pos2 - 1).c_str());
+                roomId = _wtoi(metadata.substr(pos3 + 1).c_str());
 
-                LogDebug("Parsed cache metadata from comment: hash={}, actor={}, room={}",
-                    WStringToUTF8(hash), actorId, roomId);
+                LogInfo("Parsed cache metadata: hash={}, game={}, actor={}, room={}",
+                    WStringToUTF8(hash), WStringToUTF8(gameId), actorId, roomId);
             }
 
-            // Remove comment from text for clean audio lookup
-            text.erase(commentStart, commentEnd - commentStart + 3);
+            // Remove marker from text for clean audio lookup
+            text.erase(markerStart, markerEnd - markerStart + 4);
 
-            // Trim leading whitespace after removing comment
-            size_t firstNonSpace = text.find_first_not_of(L" \t\r\n");
-            if (firstNonSpace != std::wstring::npos)
-                text = text.substr(firstNonSpace);
+            // Trim trailing whitespace before marker
+            if (markerStart > 0 && text[markerStart - 1] == L' ')
+                text.erase(markerStart - 1, 1);
         }
     }
 
