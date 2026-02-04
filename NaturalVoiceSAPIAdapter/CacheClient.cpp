@@ -10,7 +10,7 @@
 
 CacheClient::CacheClient()
     : m_serverUrl(L"http://localhost:8880/serving/audio")
-    , m_timeoutMs(100)  // 100ms timeout for cache lookups
+    , m_timeoutMs(3000)  // 2000ms timeout for cache lookups (allows time for WAV file transfer)
 {
 }
 
