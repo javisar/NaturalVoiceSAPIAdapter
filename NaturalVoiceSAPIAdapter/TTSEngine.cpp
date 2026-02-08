@@ -1336,3 +1336,42 @@ void CTTSEngine::PlayAudioToSite(const std::vector<BYTE>& audioData, ISpTTSEngin
         );
     }
 }
+
+void PlayAudioToSite(const std::vector<BYTE>& audioData, ISpTTSEngineSite* pOutputSite)
+{
+    if (audioData.size() < 12)
+        return;
+
+    const BYTE* ptr = audioData.data();
+    const BYTE* end = ptr + audioData.size();
+
+    // Comprobar RIFF + WAVE
+    if (memcmp(ptr, "RIFF", 4) != 0 || memcmp(ptr + 8, "WAVE", 4) != 0)
+        return;
+
+    ptr += 12; // saltar RIFF header
+
+    // Buscar chunk "data"
+    while (ptr + 8 <= end)
+    {
+        char chunkId[5] = { 0 };
+        memcpy(chunkId, ptr, 4);
+        uint32_t chunkSize = *(uint32_t*)(ptr + 4);
+
+        const BYTE* chunkData = ptr + 8;
+
+        if (memcmp(chunkId, "data", 4) == 0)
+        {
+            ULONG written = 0;
+            pOutputSite->Write(
+                const_cast<BYTE*>(chunkData),
+                static_cast<ULONG>(chunkSize),
+                &written
+            );
+            return;
+        }
+
+        ptr += 8 + chunkSize;
+    }
+}
+
