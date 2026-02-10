@@ -35,6 +35,8 @@ public:
     bool IsServerAvailable();
 
 private:
+    static constexpr DWORD kDefaultTimeoutMs = 3000;
+
     std::wstring m_serverUrl;
     DWORD m_timeoutMs;
 
