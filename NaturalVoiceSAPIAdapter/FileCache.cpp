@@ -184,8 +184,8 @@ nlohmann::json GetCachedJson(LPCWSTR cacheName, LPCSTR downloadUrl, LPCSTR downl
     {
         FILETIME ftNow;
         GetSystemTimeAsFileTime(&ftNow);
-        FILETIME ftWrite;
-        GetFileTime(hCacheFile, nullptr, nullptr, &ftWrite);
+        FILETIME ftWrite = {};
+        BOOL hasWriteTime = GetFileTime(hCacheFile, nullptr, nullptr, &ftWrite);
         ULARGE_INTEGER uiNow = { ftNow.dwLowDateTime, ftNow.dwHighDateTime };
         ULARGE_INTEGER uiWrite = { ftWrite.dwLowDateTime, ftWrite.dwHighDateTime };
 
@@ -197,12 +197,36 @@ nlohmann::json GetCachedJson(LPCWSTR cacheName, LPCSTR downloadUrl, LPCSTR downl
             auto json = nlohmann::json::parse(ReadTextFromFile(hCacheFile));
             CloseHandle(hCacheFile);
 
-            // Cache voice list for an hour
-            // If the cache is outdated, update it in a background thread
-            //////
-            uiWrite.QuadPart = uiNow.QuadPart;
-            if (uiNow.QuadPart < uiWrite.QuadPart ||
-                uiNow.QuadPart - uiWrite.QuadPart > 10000000ULL * 60 * 60)
+            // Cache voice list for an hour.
+            // Refresh when timestamp is invalid (future/ancient) or stale.
+            constexpr ULONGLONG kCacheMaxAgeTicks = 10000000ULL * 60 * 60;
+            constexpr ULONGLONG kMaxFutureSkewTicks = 10000000ULL * 60 * 5;
+            constexpr ULONGLONG kMinReasonableFileTime = 125911584000000000ULL; // 2000-01-01 UTC
+
+            bool shouldRefresh = !hasWriteTime;
+            if (hasWriteTime)
+            {
+                bool isAncient = uiWrite.QuadPart < kMinReasonableFileTime;
+                bool isFuture = uiWrite.QuadPart > uiNow.QuadPart + kMaxFutureSkewTicks;
+                bool isStale = uiNow.QuadPart >= uiWrite.QuadPart &&
+                    uiNow.QuadPart - uiWrite.QuadPart > kCacheMaxAgeTicks;
+
+                shouldRefresh = isAncient || isFuture || isStale;
+
+                if (isAncient || isFuture)
+                {
+                    LogWarn("Cache: JSON cache file {} has invalid timestamp, redownloading.",
+                        cacheName);
+                }
+            }
+            else
+            {
+                LogWarn("Cache: GetFileTime failed for {}, redownloading: {}",
+                    cacheName,
+                    std::system_category().message(GetLastError()));
+            }
+
+            if (shouldRefresh)
             {
                 // Download & update the cache file
                 g_taskScheduler.StartNewTask(std::move(backgroundDownload), cacheName, downloadUrl, downloadHeaders);
