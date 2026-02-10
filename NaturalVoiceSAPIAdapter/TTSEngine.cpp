@@ -1263,47 +1263,67 @@ bool CTTSEngine::TryCacheHit(const SPVTEXTFRAG* pTextFragList, ISpTTSEngineSite*
         return false;
 
     // Parse cache metadata from embedded marker: [###hash:game_id:actor:room###]
-    std::wstring gameId = L"indy3";  // Default fallback
-    int actorId = 1;   // Default fallback
-    int roomId = 1;    // Default fallback
-    std::wstring hash = L"";
-
-    // Look for metadata marker: [###hash:game_id:actor:room###]
     size_t markerStart = text.find(L"[###");
-    if (markerStart != std::wstring::npos)
+    if (markerStart == std::wstring::npos)
     {
-        size_t markerEnd = text.find(L"###]", markerStart);
-        if (markerEnd != std::wstring::npos)
-        {
-            // Extract marker content: "hash:game_id:actor:room"
-            std::wstring metadata = text.substr(markerStart + 4, markerEnd - markerStart - 4);
-
-            // Parse fields: hash:game_id:actor:room
-            size_t pos1 = metadata.find(L':');
-            size_t pos2 = metadata.find(L':', pos1 + 1);
-            size_t pos3 = metadata.find(L':', pos2 + 1);
-
-            if (pos1 != std::wstring::npos && pos2 != std::wstring::npos && pos3 != std::wstring::npos)
-            {
-                hash = metadata.substr(0, pos1);
-                gameId = metadata.substr(pos1 + 1, pos2 - pos1 - 1);
-                actorId = _wtoi(metadata.substr(pos2 + 1, pos3 - pos2 - 1).c_str());
-                roomId = _wtoi(metadata.substr(pos3 + 1).c_str());
-
-                LogInfo("Parsed cache metadata: hash={}, game={}, actor={}, room={}",
-                    WStringToUTF8(hash), WStringToUTF8(gameId), actorId, roomId);
-            }
-
-            // Remove marker from text for clean audio lookup
-            text.erase(markerStart, markerEnd - markerStart + 4);
-
-            // Trim trailing whitespace before marker
-            if (markerStart > 0 && text[markerStart - 1] == L' ')
-                text.erase(markerStart - 1, 1);
-        }
+        LogDebug("Cache lookup skipped: marker metadata missing");
+        return false;
     }
 
-    // If we have a hash from the comment, use it. Otherwise server computes from (text, actor, room)
+    size_t markerEnd = text.find(L"###]", markerStart);
+    if (markerEnd == std::wstring::npos)
+    {
+        LogWarn("Cache lookup skipped: malformed marker missing terminator");
+        return false;
+    }
+
+    std::wstring metadata = text.substr(markerStart + 4, markerEnd - markerStart - 4);
+    size_t pos1 = metadata.find(L':');
+    size_t pos2 = metadata.find(L':', pos1 == std::wstring::npos ? pos1 : pos1 + 1);
+    size_t pos3 = metadata.find(L':', pos2 == std::wstring::npos ? pos2 : pos2 + 1);
+
+    if (pos1 == std::wstring::npos || pos2 == std::wstring::npos || pos3 == std::wstring::npos)
+    {
+        LogWarn("Cache lookup skipped: malformed marker field layout");
+        return false;
+    }
+
+    std::wstring hash = metadata.substr(0, pos1);
+    std::wstring gameId = metadata.substr(pos1 + 1, pos2 - pos1 - 1);
+    std::wstring actorText = metadata.substr(pos2 + 1, pos3 - pos2 - 1);
+    std::wstring roomText = metadata.substr(pos3 + 1);
+
+    if (gameId.empty() || actorText.empty() || roomText.empty())
+    {
+        LogWarn("Cache lookup skipped: malformed marker contains empty fields");
+        return false;
+    }
+
+    wchar_t* actorEnd = nullptr;
+    wchar_t* roomEnd = nullptr;
+    long actorLong = wcstol(actorText.c_str(), &actorEnd, 10);
+    long roomLong = wcstol(roomText.c_str(), &roomEnd, 10);
+    if (actorEnd == actorText.c_str() || *actorEnd != L'\0' ||
+        roomEnd == roomText.c_str() || *roomEnd != L'\0')
+    {
+        LogWarn("Cache lookup skipped: malformed marker numeric fields");
+        return false;
+    }
+
+    int actorId = static_cast<int>(actorLong);
+    int roomId = static_cast<int>(roomLong);
+
+    LogInfo("Parsed cache metadata: hash={}, game={}, actor={}, room={}",
+        WStringToUTF8(hash), WStringToUTF8(gameId), actorId, roomId);
+
+    // Remove marker from text for clean audio lookup
+    text.erase(markerStart, markerEnd - markerStart + 4);
+
+    // Trim trailing whitespace before marker
+    if (markerStart > 0 && text[markerStart - 1] == L' ')
+        text.erase(markerStart - 1, 1);
+
+    // If we have a hash from the marker, use it. Otherwise server computes from (text, actor, room)
     CacheResult result = m_cacheClient->LookupAudio(gameId, text, hash, actorId, roomId);
 
     if (result.hit && !result.audioData.empty())
