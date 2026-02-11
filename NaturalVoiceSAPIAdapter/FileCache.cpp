@@ -199,6 +199,7 @@ nlohmann::json GetCachedJson(LPCWSTR cacheName, LPCSTR downloadUrl, LPCSTR downl
 
             // Cache voice list for an hour.
             // Refresh when timestamp is invalid (future/ancient) or stale.
+            // This timestamp validation executes during voice enumeration (VoiceTokenEnumerator -> GetCachedJson).
             constexpr ULONGLONG kCacheMaxAgeTicks = 10000000ULL * 60 * 60;
             constexpr ULONGLONG kMaxFutureSkewTicks = 10000000ULL * 60 * 5;
             constexpr ULONGLONG kMinReasonableFileTime = 125911584000000000ULL; // 2000-01-01 UTC
@@ -216,6 +217,17 @@ nlohmann::json GetCachedJson(LPCWSTR cacheName, LPCSTR downloadUrl, LPCSTR downl
                 if (isAncient || isFuture)
                 {
                     LogWarn("Cache: JSON cache file {} has invalid timestamp, redownloading.",
+                        cacheName);
+                }
+                else if (isStale)
+                {
+                    LogDebug("Cache: JSON cache file {} is stale, scheduling refresh.",
+                        cacheName);
+                }
+                else
+                {
+                    // Timestamp is valid and fresh - cache hit success
+                    LogDebug("Cache: JSON cache file {} timestamp valid, using cached data.",
                         cacheName);
                 }
             }

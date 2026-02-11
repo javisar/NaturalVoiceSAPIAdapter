@@ -774,6 +774,8 @@ void EnumOnlineVoices(std::map<std::string, std::shared_ptr<DataKeyData>>& token
 {
     try
     {
+        // Voice enumeration calls GetCachedJson, which performs timestamp validation in FileCache.cpp
+        LogDebug("Voice enum: Requesting cached JSON for {}", cacheName);
         const auto json = GetCachedJson(cacheName, downloadUrl, downloadHeaders);
 
         // Universal (IPA) phoneme converter has been supported since SAPI 5.3, which supports most other languages
