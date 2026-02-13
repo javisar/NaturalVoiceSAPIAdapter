@@ -3,10 +3,12 @@
 #include "Logger.h"
 #include "StrUtils.h"
 #include <winhttp.h>
+#include <bcrypt.h>
 #include <sstream>
 #include <iomanip>
 
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 CacheClient::CacheClient()
     : m_sourceMode(SourceMode::Endpoint)
@@ -141,6 +143,96 @@ static bool ReadAllBytes(const std::wstring& path, std::vector<BYTE>& data, DWOR
     }
 
     return true;
+}
+
+static std::wstring ComputeServerDialogueHash(
+    const std::wstring& text,
+    int actorId,
+    int roomId)
+{
+    const std::string utf8Text = WStringToUTF8(text);
+    const std::string hashInput = utf8Text + "|" + std::to_string(actorId) + "|" + std::to_string(roomId);
+    std::vector<BYTE> inputBuffer(hashInput.begin(), hashInput.end());
+
+    BCRYPT_ALG_HANDLE algHandle = nullptr;
+    BCRYPT_HASH_HANDLE hashHandle = nullptr;
+    DWORD objectLength = 0;
+    DWORD hashLength = 0;
+    DWORD bytesRead = 0;
+
+    std::vector<BYTE> objectBuffer;
+    std::vector<BYTE> hashBuffer;
+
+    if (BCryptOpenAlgorithmProvider(&algHandle, BCRYPT_MD5_ALGORITHM, nullptr, 0) != STATUS_SUCCESS)
+        return L"";
+
+    if (BCryptGetProperty(
+        algHandle,
+        BCRYPT_OBJECT_LENGTH,
+        reinterpret_cast<PUCHAR>(&objectLength),
+        sizeof(objectLength),
+        &bytesRead,
+        0) != STATUS_SUCCESS)
+    {
+        BCryptCloseAlgorithmProvider(algHandle, 0);
+        return L"";
+    }
+
+    if (BCryptGetProperty(
+        algHandle,
+        BCRYPT_HASH_LENGTH,
+        reinterpret_cast<PUCHAR>(&hashLength),
+        sizeof(hashLength),
+        &bytesRead,
+        0) != STATUS_SUCCESS)
+    {
+        BCryptCloseAlgorithmProvider(algHandle, 0);
+        return L"";
+    }
+
+    objectBuffer.resize(objectLength);
+    hashBuffer.resize(hashLength);
+
+    if (BCryptCreateHash(
+        algHandle,
+        &hashHandle,
+        objectBuffer.data(),
+        objectLength,
+        nullptr,
+        0,
+        0) != STATUS_SUCCESS)
+    {
+        BCryptCloseAlgorithmProvider(algHandle, 0);
+        return L"";
+    }
+
+    if (BCryptHashData(
+        hashHandle,
+        inputBuffer.data(),
+        static_cast<ULONG>(inputBuffer.size()),
+        0) != STATUS_SUCCESS)
+    {
+        BCryptDestroyHash(hashHandle);
+        BCryptCloseAlgorithmProvider(algHandle, 0);
+        return L"";
+    }
+
+    if (BCryptFinishHash(hashHandle, hashBuffer.data(), hashLength, 0) != STATUS_SUCCESS)
+    {
+        BCryptDestroyHash(hashHandle);
+        BCryptCloseAlgorithmProvider(algHandle, 0);
+        return L"";
+    }
+
+    BCryptDestroyHash(hashHandle);
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+
+    std::wstringstream digest;
+    digest << std::hex << std::setfill(L'0');
+    for (BYTE b : hashBuffer)
+        digest << std::setw(2) << static_cast<unsigned int>(b);
+
+    return digest.str();
 }
 
 // Helper function to escape JSON strings
@@ -357,13 +449,25 @@ CacheResult CacheClient::LookupAudio(
     {
         if (m_sourceMode == SourceMode::Disk)
         {
-            if (hash.empty())
+            std::wstring effectiveHash = ComputeServerDialogueHash(text, actorId, roomId);
+            if (effectiveHash.empty())
+            {
+                effectiveHash = hash;
+                LogWarn("CacheClient: Failed to compute MD5 hash, falling back to marker hash");
+            }
+
+            if (effectiveHash.empty())
             {
                 LogDebug("CacheClient: Disk lookup skipped - missing hash");
                 return result;
             }
 
-            std::wstring audioPath = BuildDialogueWavPath(m_audioBasePath, gameId, actorId, roomId, hash);
+            if (!hash.empty() && hash != effectiveHash)
+            {
+                LogInfo("CacheClient: Marker hash differs from server contract hash; using MD5 contract hash");
+            }
+
+            std::wstring audioPath = BuildDialogueWavPath(m_audioBasePath, gameId, actorId, roomId, effectiveHash);
             DWORD fileError = ERROR_SUCCESS;
             std::vector<BYTE> audioData;
             if (!ReadAllBytes(audioPath, audioData, fileError))
