@@ -70,6 +70,37 @@ Or, you can use `regsvr32` to register the DLL files manually.
 
 For advanced users, here's a list of this program's [configurable registry values][8].
 
+## Cache audio config file
+
+NaturalVoiceSAPIAdapter can also load cache audio settings from a local config file, so registry edits are optional for cache mode/targets.
+
+- **Config file path:** `NaturalVoiceSAPIAdapter.cache.ini` in the same folder as `NaturalVoiceSAPIAdapter.dll`.
+- **Section:** `[CacheAudio]`
+- **Supported keys:** `CacheAudioSourceMode`, `CacheAudioServerUrl`, `CacheAudioBasePath`
+
+Key semantics are identical to the registry values:
+
+- `CacheAudioSourceMode`: `endpoint` or `disk`
+- `CacheAudioServerUrl`: cache endpoint URL used in `endpoint` mode
+- `CacheAudioBasePath`: base folder used in `disk` mode
+
+Precedence order is:
+
+1. Config file value (if present)
+2. Registry value (`HKCU\\Software\\NaturalVoiceSAPIAdapter`)
+3. Built-in default
+
+If the config file is missing, invalid, or only has some keys, initialization safely falls back to registry/default values. Unknown `CacheAudioSourceMode` values still fall back to `endpoint` with a warning, and `Speak()` keeps the same cache-miss/error fallback behavior.
+
+Minimal complete example:
+
+```ini
+[CacheAudio]
+CacheAudioSourceMode=disk
+CacheAudioServerUrl=http://localhost:8880/serving/audio
+CacheAudioBasePath=data/dialogues
+```
+
 ## Testing
 
 You can use the `TtsApplication.exe` in folders `x86` and `x64` to test the engine.
