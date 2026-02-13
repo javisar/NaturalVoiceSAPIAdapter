@@ -11,6 +11,40 @@
 
 // CTTSEngine
 
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+
+static std::wstring GetCacheConfigFilePath() noexcept
+{
+    WCHAR modulePath[MAX_PATH];
+    DWORD pathLen = GetModuleFileNameW((HMODULE)&__ImageBase, modulePath, MAX_PATH);
+    if (pathLen == 0 || pathLen == MAX_PATH)
+        return {};
+
+    std::wstring configPath(modulePath, pathLen);
+    size_t slashPos = configPath.find_last_of(L"\\/");
+    if (slashPos == std::wstring::npos)
+        return {};
+
+    configPath.resize(slashPos + 1);
+    configPath.append(CacheAudioConfig::kConfigFileName);
+    return configPath;
+}
+
+static std::optional<std::wstring> GetCacheConfigOverride(const std::wstring& configPath, LPCWSTR valueName)
+{
+    WCHAR buffer[2048] = {};
+    DWORD len = GetPrivateProfileStringW(
+        CacheAudioConfig::kConfigFileSection,
+        valueName,
+        L"",
+        buffer,
+        _countof(buffer),
+        configPath.c_str());
+    if (len == 0)
+        return std::nullopt;
+    return std::wstring(buffer, len);
+}
+
 // GetTickCount() is deprecated and can overflow every 49 days.
 // But GetTickCount64() isn't supported on XP,
 // and we are only using the ticks to calculate intervals by subtracting two ticks,
@@ -40,9 +74,66 @@ STDMETHODIMP CTTSEngine::SetObjectToken(ISpObjectToken* pToken) noexcept
         m_cacheClient = std::make_unique<CacheClient>();
         RegKey configKey = RegOpenConfigKey();
 
-        std::wstring sourceModeValue = configKey.GetString(L"CacheAudioSourceMode", L"disk");
-        std::wstring serverUrl = configKey.GetString(L"CacheAudioServerUrl", L"http://localhost:8880/serving/audio");
-        std::wstring audioBasePath = configKey.GetString(L"CacheAudioBasePath", L"data/dialogues");
+        std::wstring sourceModeValue = configKey.GetString(
+            CacheAudioConfig::kSourceModeValueName,
+            CacheAudioConfig::kSourceModeDefault);
+        std::wstring serverUrl = configKey.GetString(
+            CacheAudioConfig::kServerUrlValueName,
+            CacheAudioConfig::kServerUrlDefault);
+        std::wstring audioBasePath = configKey.GetString(
+            CacheAudioConfig::kBasePathValueName,
+            CacheAudioConfig::kBasePathDefault);
+
+        std::wstring cacheConfigPath = GetCacheConfigFilePath();
+        if (cacheConfigPath.empty())
+        {
+            LogWarn("TTS init: cache config file path resolution failed, fallback to registry/default values");
+        }
+        else
+        {
+            DWORD attributes = GetFileAttributesW(cacheConfigPath.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES)
+            {
+                LogInfo("TTS init: cache config file not found at '{}', fallback to registry/default values",
+                    WStringToUTF8(cacheConfigPath));
+            }
+            else if (attributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                LogWarn("TTS init: cache config file path '{}' is a directory, fallback to registry/default values",
+                    WStringToUTF8(cacheConfigPath));
+            }
+            else
+            {
+                size_t overrideCount = 0;
+                if (auto overrideValue = GetCacheConfigOverride(cacheConfigPath, CacheAudioConfig::kSourceModeValueName))
+                {
+                    sourceModeValue = *overrideValue;
+                    overrideCount++;
+                }
+                if (auto overrideValue = GetCacheConfigOverride(cacheConfigPath, CacheAudioConfig::kServerUrlValueName))
+                {
+                    serverUrl = *overrideValue;
+                    overrideCount++;
+                }
+                if (auto overrideValue = GetCacheConfigOverride(cacheConfigPath, CacheAudioConfig::kBasePathValueName))
+                {
+                    audioBasePath = *overrideValue;
+                    overrideCount++;
+                }
+
+                if (overrideCount == 0)
+                {
+                    LogWarn("TTS init: cache config file '{}' has no cache overrides, fallback to registry/default values",
+                        WStringToUTF8(cacheConfigPath));
+                }
+                else
+                {
+                    LogInfo("TTS init: loaded {} cache override(s) from config file '{}'",
+                        overrideCount,
+                        WStringToUTF8(cacheConfigPath));
+                }
+            }
+        }
 
         CacheClient::SourceMode sourceMode = CacheClient::SourceMode::Endpoint;
         if (_wcsicmp(sourceModeValue.c_str(), L"endpoint") == 0)
@@ -1428,4 +1519,3 @@ void PlayAudioToSite(const std::vector<BYTE>& audioData, ISpTTSEngineSite* pOutp
         ptr += 8 + chunkSize;
     }
 }
-

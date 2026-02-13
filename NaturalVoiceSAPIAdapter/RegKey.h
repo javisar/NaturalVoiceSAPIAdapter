@@ -5,6 +5,20 @@
 #include <vector>
 #include <system_error>
 
+namespace CacheAudioConfig
+{
+	inline constexpr LPCWSTR kSourceModeValueName = L"CacheAudioSourceMode";
+	inline constexpr LPCWSTR kServerUrlValueName = L"CacheAudioServerUrl";
+	inline constexpr LPCWSTR kBasePathValueName = L"CacheAudioBasePath";
+
+	inline constexpr LPCWSTR kSourceModeDefault = L"disk";
+	inline constexpr LPCWSTR kServerUrlDefault = L"http://localhost:8880/serving/audio";
+	inline constexpr LPCWSTR kBasePathDefault = L"data/dialogues";
+
+	inline constexpr LPCWSTR kConfigFileName = L"NaturalVoiceSAPIAdapter.cache.ini";
+	inline constexpr LPCWSTR kConfigFileSection = L"CacheAudio";
+}
+
 class RegKey
 {
 	HKEY m_hKey;
