@@ -32,6 +32,37 @@ static std::wstring BuildDialogueWavPath(
     int roomId,
     const std::wstring& hash)
 {
+    const wchar_t sep =
+#ifdef _WIN32
+        L'\\';
+#else
+        L'/';
+#endif
+
+    std::wstringstream fileName;
+    fileName << std::setfill(L'0') << std::setw(4) << actorId
+        << L"_" << std::setfill(L'0') << std::setw(4) << roomId
+        << L"_" << hash << L".wav";
+
+    std::wstring path = basePath;
+    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+        path.push_back(sep);
+
+    path.append(gameId);
+    path.push_back(sep);
+    path.append(fileName.str());
+
+    return path;
+}
+
+
+static std::wstring BuildDialogueWavPath2(
+    const std::wstring& basePath,
+    const std::wstring& gameId,
+    int actorId,
+    int roomId,
+    const std::wstring& hash)
+{
     std::wstringstream fileName;
     fileName << std::setfill(L'0') << std::setw(4) << actorId
              << L"_" << std::setfill(L'0') << std::setw(4) << roomId

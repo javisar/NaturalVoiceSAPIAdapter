@@ -40,7 +40,7 @@ STDMETHODIMP CTTSEngine::SetObjectToken(ISpObjectToken* pToken) noexcept
         m_cacheClient = std::make_unique<CacheClient>();
         RegKey configKey = RegOpenConfigKey();
 
-        std::wstring sourceModeValue = configKey.GetString(L"CacheAudioSourceMode", L"endpoint");
+        std::wstring sourceModeValue = configKey.GetString(L"CacheAudioSourceMode", L"disk");
         std::wstring serverUrl = configKey.GetString(L"CacheAudioServerUrl", L"http://localhost:8880/serving/audio");
         std::wstring audioBasePath = configKey.GetString(L"CacheAudioBasePath", L"data/dialogues");
 
