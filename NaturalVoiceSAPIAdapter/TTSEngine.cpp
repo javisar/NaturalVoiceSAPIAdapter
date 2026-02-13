@@ -38,8 +38,42 @@ STDMETHODIMP CTTSEngine::SetObjectToken(ISpObjectToken* pToken) noexcept
 
         // Initialize cache client for pre-generated dialogue audio
         m_cacheClient = std::make_unique<CacheClient>();
-        m_cacheClient->SetServerUrl(L"http://localhost:8880/serving/audio");
-        m_cacheEnabled = true;  // Could be registry-configurable in future
+        RegKey configKey = RegOpenConfigKey();
+
+        std::wstring sourceModeValue = configKey.GetString(L"CacheAudioSourceMode", L"endpoint");
+        std::wstring serverUrl = configKey.GetString(L"CacheAudioServerUrl", L"http://localhost:8880/serving/audio");
+        std::wstring audioBasePath = configKey.GetString(L"CacheAudioBasePath", L"data/dialogues");
+
+        CacheClient::SourceMode sourceMode = CacheClient::SourceMode::Endpoint;
+        if (_wcsicmp(sourceModeValue.c_str(), L"endpoint") == 0)
+        {
+            sourceMode = CacheClient::SourceMode::Endpoint;
+        }
+        else if (_wcsicmp(sourceModeValue.c_str(), L"disk") == 0)
+        {
+            sourceMode = CacheClient::SourceMode::Disk;
+        }
+        else
+        {
+            LogWarn("TTS init: unknown CacheAudioSourceMode='{}', fall back to endpoint", WStringToUTF8(sourceModeValue));
+            sourceMode = CacheClient::SourceMode::Endpoint;
+            sourceModeValue = L"endpoint";
+        }
+
+        m_cacheClient->SetSourceMode(sourceMode);
+        m_cacheClient->SetServerUrl(serverUrl);
+        m_cacheClient->SetAudioBasePath(audioBasePath);
+
+        if (sourceMode == CacheClient::SourceMode::Disk)
+        {
+            LogInfo("TTS init: effective cache mode='disk' target='{}'", WStringToUTF8(audioBasePath));
+        }
+        else
+        {
+            LogInfo("TTS init: effective cache mode='endpoint' target='{}'", WStringToUTF8(serverUrl));
+        }
+
+        m_cacheEnabled = true;
 
         return S_OK;
     }

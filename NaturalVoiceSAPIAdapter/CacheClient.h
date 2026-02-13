@@ -14,11 +14,28 @@ struct CacheResult {
 
 class CacheClient {
 public:
+    enum class SourceMode {
+        Endpoint,
+        Disk,
+    };
+
     CacheClient();
     ~CacheClient();
 
+    // Configure cache source
+    void SetSourceMode(SourceMode mode)
+    {
+        m_sourceMode = mode;
+    }
+
     // Configure server endpoint
     void SetServerUrl(const std::wstring& url);
+
+    // Configure disk lookup base path
+    void SetAudioBasePath(const std::wstring& basePath)
+    {
+        m_audioBasePath = basePath;
+    }
 
     // Look up dialogue audio from cache
     // Returns CacheResult with hit status and audio data
@@ -37,7 +54,9 @@ public:
 private:
     static constexpr DWORD kDefaultTimeoutMs = 3000;
 
+    SourceMode m_sourceMode;
     std::wstring m_serverUrl;
+    std::wstring m_audioBasePath;
     DWORD m_timeoutMs;
 
     // HTTP POST implementation using WinHTTP
