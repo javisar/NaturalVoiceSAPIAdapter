@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <ntstatus.h>
 #include <Windows.h>
 
 // Result of cache lookup
