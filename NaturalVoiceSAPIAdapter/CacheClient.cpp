@@ -9,7 +9,9 @@
 #pragma comment(lib, "winhttp.lib")
 
 CacheClient::CacheClient()
-    : m_serverUrl(L"http://localhost:8880/serving/audio")
+    : m_sourceMode(SourceMode::Endpoint)
+    , m_serverUrl(L"http://localhost:8880/serving/audio")
+    , m_audioBasePath(L"data/dialogues")
     , m_timeoutMs(CacheClient::kDefaultTimeoutMs)
 {
 }
@@ -21,6 +23,93 @@ CacheClient::~CacheClient()
 void CacheClient::SetServerUrl(const std::wstring& url)
 {
     m_serverUrl = url;
+}
+
+static std::wstring BuildDialogueWavPath(
+    const std::wstring& basePath,
+    const std::wstring& gameId,
+    int actorId,
+    int roomId,
+    const std::wstring& hash)
+{
+    std::wstringstream fileName;
+    fileName << std::setfill(L'0') << std::setw(4) << actorId
+             << L"_" << std::setfill(L'0') << std::setw(4) << roomId
+             << L"_" << hash << L".wav";
+
+    std::wstring path = basePath;
+    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
+    {
+        path.push_back(L'\\');
+    }
+
+    path.append(gameId);
+    path.push_back(L'\\');
+    path.append(fileName.str());
+    return path;
+}
+
+static bool ReadAllBytes(const std::wstring& path, std::vector<BYTE>& data, DWORD& errorCode)
+{
+    errorCode = ERROR_SUCCESS;
+
+    HANDLE fileHandle = CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+
+    if (fileHandle == INVALID_HANDLE_VALUE)
+    {
+        errorCode = GetLastError();
+        return false;
+    }
+
+    LARGE_INTEGER fileSize = {};
+    if (!GetFileSizeEx(fileHandle, &fileSize))
+    {
+        errorCode = GetLastError();
+        CloseHandle(fileHandle);
+        return false;
+    }
+
+    if (fileSize.QuadPart <= 0 || fileSize.QuadPart > static_cast<LONGLONG>(MAXDWORD))
+    {
+        errorCode = ERROR_INVALID_DATA;
+        CloseHandle(fileHandle);
+        return false;
+    }
+
+    DWORD bytesToRead = static_cast<DWORD>(fileSize.QuadPart);
+    data.resize(bytesToRead);
+
+    DWORD bytesRead = 0;
+    BOOL readOk = ReadFile(fileHandle, data.data(), bytesToRead, &bytesRead, nullptr);
+    CloseHandle(fileHandle);
+
+    if (!readOk)
+    {
+        errorCode = GetLastError();
+        data.clear();
+        return false;
+    }
+
+    if (bytesRead == 0)
+    {
+        errorCode = ERROR_INVALID_DATA;
+        data.clear();
+        return false;
+    }
+
+    if (bytesRead < bytesToRead)
+    {
+        data.resize(bytesRead);
+    }
+
+    return true;
 }
 
 // Helper function to escape JSON strings
@@ -235,6 +324,36 @@ CacheResult CacheClient::LookupAudio(
 
     try
     {
+        if (m_sourceMode == SourceMode::Disk)
+        {
+            if (hash.empty())
+            {
+                LogDebug("CacheClient: Disk lookup skipped - missing hash");
+                return result;
+            }
+
+            std::wstring audioPath = BuildDialogueWavPath(m_audioBasePath, gameId, actorId, roomId, hash);
+            DWORD fileError = ERROR_SUCCESS;
+            std::vector<BYTE> audioData;
+            if (!ReadAllBytes(audioPath, audioData, fileError))
+            {
+                if (fileError == ERROR_FILE_NOT_FOUND || fileError == ERROR_PATH_NOT_FOUND)
+                {
+                    LogDebug("CacheClient: Disk cache MISS - file not found '{}'", audioPath);
+                    return result;
+                }
+
+                result.errorMessage = "Disk read failed: " + std::to_string(fileError);
+                LogErr("CacheClient: Disk lookup error '{}' (code={})", audioPath, fileError);
+                return result;
+            }
+
+            result.hit = true;
+            result.audioData = std::move(audioData);
+            LogDebug("CacheClient: Disk cache HIT '{}' ({} bytes)", audioPath, result.audioData.size());
+            return result;
+        }
+
         // Build JSON body
         // Server computes hash from (text, actor_id, room_id), so we pass empty hash
         std::ostringstream json;

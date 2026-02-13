@@ -39,7 +39,7 @@ public:
 
     // Look up dialogue audio from cache
     // Returns CacheResult with hit status and audio data
-    // Note: hash parameter is optional/ignored - server computes hash from text/actor/room
+    // Note: endpoint mode computes hash from text/actor/room; disk mode requires hash from marker metadata
     CacheResult LookupAudio(
         const std::wstring& gameId,
         const std::wstring& text,
