@@ -70,29 +70,58 @@ Or, you can use `regsvr32` to register the DLL files manually.
 
 For advanced users, here's a list of this program's [configurable registry values][8].
 
-## Cache audio config file
+## Direct WAV disk mode (cache audio config file)
 
-NaturalVoiceSAPIAdapter can also load cache audio settings from a local config file, so registry edits are optional for cache mode/targets.
+NaturalVoiceSAPIAdapter can read pre-generated WAV files directly from disk. Configure this with `NaturalVoiceSAPIAdapter.cache.ini` placed in the same folder as `NaturalVoiceSAPIAdapter.dll`.
 
-- **Config file path:** `NaturalVoiceSAPIAdapter.cache.ini` in the same folder as `NaturalVoiceSAPIAdapter.dll`.
+### Runtime keys and accepted values
+
+- **Config file location:** `NaturalVoiceSAPIAdapter.cache.ini` beside the adapter DLL.
 - **Section:** `[CacheAudio]`
-- **Supported keys:** `CacheAudioSourceMode`, `CacheAudioServerUrl`, `CacheAudioBasePath`
+- **Exact key names used at runtime:**
+  - `CacheAudioSourceMode`
+  - `CacheAudioServerUrl`
+  - `CacheAudioBasePath`
+- **Accepted `CacheAudioSourceMode` values:** `disk` and `endpoint`
+  - Unknown values are treated as invalid and runtime falls back to `endpoint` with a warning log.
 
-Key semantics are identical to the registry values:
+### Config precedence (per key)
 
-- `CacheAudioSourceMode`: `endpoint` or `disk`
-- `CacheAudioServerUrl`: cache endpoint URL used in `endpoint` mode
-- `CacheAudioBasePath`: base folder used in `disk` mode
+Each key is resolved independently with this order:
 
-Precedence order is:
-
-1. Config file value (if present)
-2. Registry value (`HKCU\\Software\\NaturalVoiceSAPIAdapter`)
+1. `NaturalVoiceSAPIAdapter.cache.ini` value (`[CacheAudio]` section)
+2. Registry value under `HKCU\\Software\\NaturalVoiceSAPIAdapter`
 3. Built-in default
 
-If the config file is missing, invalid, or only has some keys, initialization safely falls back to registry/default values. Unknown `CacheAudioSourceMode` values still fall back to `endpoint` with a warning, and `Speak()` keeps the same cache-miss/error fallback behavior.
+Current defaults:
 
-Minimal complete example:
+- `CacheAudioSourceMode=disk`
+- `CacheAudioServerUrl=http://localhost:8880/serving/audio`
+- `CacheAudioBasePath=data/dialogues`
+
+### Disk filename/path contract
+
+In `disk` mode, the adapter reads WAV files from this exact contract:
+
+`{CacheAudioBasePath}/{game_id}/{actor_id:04d}_{room_id:04d}_{hash}.wav`
+
+Example for `game_id=indy3`, `actor_id=1`, `room_id=82`:
+
+`data/dialogues/indy3/0001_0082_<hash>.wav`
+
+### Hash behavior used for disk lookup
+
+- Primary hash: MD5 of `(text, actor_id, room_id)` using the server contract.
+- Fallback hash: marker hash from `[###hash:game_id:actor:room###]` only if MD5 computation fails.
+- If both are unavailable, disk lookup is skipped.
+
+### Miss/error fallback semantics
+
+- Disk cache miss is non-fatal and normal synthesis continues.
+- Disk read errors are non-fatal and normal synthesis continues.
+- Endpoint mode miss behavior is also non-fatal (`Speak()` falls back to synthesis).
+
+Minimal config example:
 
 ```ini
 [CacheAudio]
