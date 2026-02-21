@@ -76,6 +76,12 @@ NaturalVoiceSAPIAdapter can read pre-generated WAV files directly from disk. Con
 
 ### Runtime keys and accepted values
 
+Runtime source of truth for this section:
+
+- `TTSEngine.cpp` reads INI overrides from `[CacheAudio]` in `NaturalVoiceSAPIAdapter.cache.ini` and applies per-key fallback.
+- `RegKey.h` defines the exact key names and built-in defaults.
+- `CacheClient.cpp` defines disk lookup naming and hash behavior.
+
 - **Config file location:** `NaturalVoiceSAPIAdapter.cache.ini` beside the adapter DLL.
 - **Section:** `[CacheAudio]`
 - **Exact key names used at runtime:**
@@ -104,6 +110,8 @@ Current defaults:
 In `disk` mode, the adapter reads WAV files from this exact contract:
 
 `{CacheAudioBasePath}/{game_id}/{actor_id:04d}_{room_id:04d}_{hash}.wav`
+
+Equivalent operator shorthand: `{game}/{actor4}_{room4}_{hash}.wav`.
 
 Example for `game_id=indy3`, `actor_id=1`, `room_id=82`:
 
